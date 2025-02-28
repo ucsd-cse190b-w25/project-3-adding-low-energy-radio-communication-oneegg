@@ -125,14 +125,20 @@ int main(void)
 		if (diff_x > 1000 || diff_y > 1000 || diff_z > 1000) {
 			// Device is moving
 			timer_cycles = 0;
+			disconnectBLE();
+			//setDiscoverability(0);
+			//nonDiscoverable = 1;
 		} else {
 			// Device is not moving
 			timer_cycles++;
-			printf("timer_cycles = %d\n", timer_cycles);
+			// printf("timer_cycles = %d\n", timer_cycles);
 		}
 
 		// Check if device has been not moving for more than one minute (20Hz * 60s)
-		if ((timer_cycles > 60) && (timer_cycles % 10 == 0)) {
+		if ((timer_cycles > 20) && (timer_cycles % 1 == 0)) {
+			//setDiscoverability(1);
+			//nonDiscoverable = 0;
+
 			// Send a string to the NORDIC UART service, remember to not include the newline
 			unsigned char test_str[] = "%d eggs";
 
