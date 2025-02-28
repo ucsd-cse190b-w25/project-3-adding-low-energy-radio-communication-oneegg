@@ -30,7 +30,8 @@ void timer_init(TIM_TypeDef* timer)
 	timer->SMCR &= ~TIM_SMCR_SMS;
 
 	/* 4MHz / 4000 PSC = 1kHZ speed for timer */
-	timer->PSC = 4000 - 1;
+	/* 8MHz / 8000 PSC = 1kHz */
+	timer->PSC = 8000 - 1;
 	timer->ARR = 1000 - 1;
 
 	/* Enable timer interrupt */

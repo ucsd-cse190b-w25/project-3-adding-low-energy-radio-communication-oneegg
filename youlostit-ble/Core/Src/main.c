@@ -19,6 +19,9 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 //#include "ble_commands.h"
+#include "timer.h"
+#include "i2c.h"
+#include "lsm6dsl.h"
 #include "ble.h"
 
 #include <stdint.h>
@@ -28,18 +31,6 @@
 int dataAvailable = 0;
 
 SPI_HandleTypeDef hspi3;
-
-/*
-* The character sequence to display on the LEDs can be thought of as follows:
-* int digits[16] = {
-* 	  2, 1, 2, 1,			  // preamble -> 10 01 10 01
-* 	  0, 0, 0, 2, 3, 3, 0, 2, // 0754 in binary -> 00 00 00 10 11 11 00 10
-*	  _, _, _, _			  // minutes lost as an 8-bit, unsigned number
-* }
- */
-
-/* Same sequence as above but stored in 32 bits */
-int digits = 0b10011001000000101111001000000000;
 
 /* Global variable for timer interrupt */
 volatile int timer_triggered = 0;
@@ -77,8 +68,10 @@ int main(void)
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-  // leds_init();
-  // timer_init(TIM2);
+
+  timer_init(TIM2);
+  timer_set_ms(TIM2, 50);
+
   i2c_init();
   lsm6dsl_init();
 
@@ -89,26 +82,27 @@ int main(void)
   MX_GPIO_Init();
   MX_SPI3_Init();
 
-  //RESET BLE MODULE
+  /* RESET BLE MODULE */
   HAL_GPIO_WritePin(BLE_RESET_GPIO_Port,BLE_RESET_Pin,GPIO_PIN_RESET);
   HAL_Delay(10);
   HAL_GPIO_WritePin(BLE_RESET_GPIO_Port,BLE_RESET_Pin,GPIO_PIN_SET);
 
   ble_init();
-
   HAL_Delay(10);
 
+  /* initialize as not discoverable until it's lost */
   uint8_t nonDiscoverable = 0;
+  setDiscoverability(0);
 
   int32_t timer_cycles = 0;
   int16_t prev_x, prev_y, prev_z;
 
   while (1)
   {
-	  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)){
+	  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)) {
 	    catchBLE();
-	  }else{
-		HAL_Delay(1000);
+	  } else if (timer_triggered) {
+
 		// Read data from accelerometer
 	    int16_t x, y, z;
 	    lsm6dsl_read_xyz(&x, &y, &z);
@@ -122,29 +116,42 @@ int main(void)
 		prev_y = y;
 		prev_z = z;
 
-		if (diff_x > 1000 || diff_y > 1000 || diff_z > 1000) {
+		if (diff_x > 1500 || diff_y > 1500 || diff_z > 1500) {
 			// Device is moving
 			timer_cycles = 0;
+
 			disconnectBLE();
-			//setDiscoverability(0);
-			//nonDiscoverable = 1;
+			setDiscoverability(0);
+			nonDiscoverable = 1;
+
+
 		} else {
 			// Device is not moving
 			timer_cycles++;
-			// printf("timer_cycles = %d\n", timer_cycles);
 		}
 
 		// Check if device has been not moving for more than one minute (20Hz * 60s)
-		if ((timer_cycles > 20) && (timer_cycles % 1 == 0)) {
-			//setDiscoverability(1);
-			//nonDiscoverable = 0;
+		if ((timer_cycles >= 1200) && (timer_cycles % 200 == 0)) {
+
+			setDiscoverability(1);
+			nonDiscoverable = 0;
 
 			// Send a string to the NORDIC UART service, remember to not include the newline
-			unsigned char test_str[] = "%d eggs";
+			u8int_t message[20];
+			int cx;
 
-			updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
+
+
+			cx = snprintf(message, 20, "1egg lost for %lds", (timer_cycles/20) - 60);
+
+			// prevent buffer overflow
+			if (cx <= 20) {
+				updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, cx, message);
+			}
+
 		}
 
+		timer_triggered = 0;
 	  }
 	  // Wait for interrupt, only uncomment if low power is needed
 	  //__WFI();
