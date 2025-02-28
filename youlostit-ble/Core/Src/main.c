@@ -21,11 +21,48 @@
 //#include "ble_commands.h"
 #include "ble.h"
 
+#include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 int dataAvailable = 0;
 
 SPI_HandleTypeDef hspi3;
+
+/*
+* The character sequence to display on the LEDs can be thought of as follows:
+* int digits[16] = {
+* 	  2, 1, 2, 1,			  // preamble -> 10 01 10 01
+* 	  0, 0, 0, 2, 3, 3, 0, 2, // 0754 in binary -> 00 00 00 10 11 11 00 10
+*	  _, _, _, _			  // minutes lost as an 8-bit, unsigned number
+* }
+ */
+
+/* Same sequence as above but stored in 32 bits */
+int digits = 0b10011001000000101111001000000000;
+
+/* Global variable for timer interrupt */
+volatile int timer_triggered = 0;
+
+/* interrupt handler for TIM2 */
+void TIM2_IRQHandler()
+{
+	// Check & reset update interrupt flag
+	if (TIM2->SR & TIM_SR_UIF) {
+		TIM2->SR &= ~TIM_SR_UIF;
+		timer_triggered = 1;
+	}
+}
+
+/* Redefine the libc _write() function so we can use printf in your code */
+int _write(int file, char *ptr, int len)
+{
+    int i = 0;
+    for (i = 0; i < len; i++) {
+        ITM_SendChar(*ptr++);
+    }
+    return len;
+}
 
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
@@ -37,8 +74,13 @@ static void MX_SPI3_Init(void);
   */
 int main(void)
 {
+
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
+  // leds_init();
+  // timer_init(TIM2);
+  i2c_init();
+  lsm6dsl_init();
 
   /* Configure the system clock */
   SystemClock_Config();
@@ -58,15 +100,45 @@ int main(void)
 
   uint8_t nonDiscoverable = 0;
 
+  int32_t timer_cycles = 0;
+  int16_t prev_x, prev_y, prev_z;
+
   while (1)
   {
 	  if(!nonDiscoverable && HAL_GPIO_ReadPin(BLE_INT_GPIO_Port,BLE_INT_Pin)){
 	    catchBLE();
 	  }else{
-		  HAL_Delay(1000);
-		  // Send a string to the NORDIC UART service, remember to not include the newline
-		  unsigned char test_str[] = "youlostit BLE test";
-		  updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
+		HAL_Delay(1000);
+		// Read data from accelerometer
+	    int16_t x, y, z;
+	    lsm6dsl_read_xyz(&x, &y, &z);
+
+	    // Calculate raw difference in magnitude for each component of acceleration
+		int16_t diff_x = abs(x - prev_x);
+		int16_t diff_y = abs(y - prev_y);
+		int16_t diff_z = abs(z - prev_z);
+
+		prev_x = x;
+		prev_y = y;
+		prev_z = z;
+
+		if (diff_x > 1000 || diff_y > 1000 || diff_z > 1000) {
+			// Device is moving
+			timer_cycles = 0;
+		} else {
+			// Device is not moving
+			timer_cycles++;
+			printf("timer_cycles = %d\n", timer_cycles);
+		}
+
+		// Check if device has been not moving for more than one minute (20Hz * 60s)
+		if ((timer_cycles > 60) && (timer_cycles % 10 == 0)) {
+			// Send a string to the NORDIC UART service, remember to not include the newline
+			unsigned char test_str[] = "%d eggs";
+
+			updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, sizeof(test_str)-1, test_str);
+		}
+
 	  }
 	  // Wait for interrupt, only uncomment if low power is needed
 	  //__WFI();
