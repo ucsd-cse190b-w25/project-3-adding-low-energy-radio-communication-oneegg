@@ -69,6 +69,7 @@ int main(void)
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
+  /* Initialize timer at 20Hz (interrupt every 50ms) */
   timer_init(TIM2);
   timer_set_ms(TIM2, 50);
 
@@ -117,7 +118,7 @@ int main(void)
 		prev_z = z;
 
 		if (diff_x > 1500 || diff_y > 1500 || diff_z > 1500) {
-			// Device is moving
+			// Device is moving; disconnect/make nondiscoverable
 			timer_cycles = 0;
 
 			disconnectBLE();
@@ -132,7 +133,7 @@ int main(void)
 
 		// Check if device has been not moving for more than one minute (20Hz * 60s)
 		if ((timer_cycles >= 1200) && (timer_cycles % 200 == 0)) {
-
+			// Device is in lost mode; make discoverable
 			setDiscoverability(1);
 			nonDiscoverable = 0;
 
@@ -140,11 +141,11 @@ int main(void)
 			u8int_t message[20];
 			int cx;
 
-
-
+			// put fancy format string into message[]
+			// (timer_cycles/20) is number of seconds elapsed since stopped moving, - 60 is number of seconds since lost
 			cx = snprintf(message, 20, "1egg lost for %lds", (timer_cycles/20) - 60);
 
-			// prevent buffer overflow
+			// prevent buffer overflow in case cx is more than 20 for some reason
 			if (cx <= 20) {
 				updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, cx, message);
 			}

@@ -29,8 +29,7 @@ void timer_init(TIM_TypeDef* timer)
 	/* Use internal clock */
 	timer->SMCR &= ~TIM_SMCR_SMS;
 
-	/* 4MHz / 4000 PSC = 1kHZ speed for timer */
-	/* 8MHz / 8000 PSC = 1kHz */
+	/* 8MHz / 8000 PSC = 1kHz speed for timer */
 	timer->PSC = 8000 - 1;
 	timer->ARR = 1000 - 1;
 
