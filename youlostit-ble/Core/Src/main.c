@@ -143,7 +143,7 @@ int main(void)
 
 			// put fancy format string into message[]
 			// (timer_cycles/20) is number of seconds elapsed since stopped moving, - 60 is number of seconds since lost
-			cx = snprintf(message, 20, "egg lost for %lds", (timer_cycles/20) - 60);
+			cx = snprintf(message, 20, "1egg lost for %lds", (timer_cycles/20) - 60);
 
 			// prevent buffer overflow in case cx is more than 20 for some reason
 			if (cx <= 20) {
