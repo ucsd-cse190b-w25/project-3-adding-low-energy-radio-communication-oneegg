@@ -35,6 +35,16 @@ SPI_HandleTypeDef hspi3;
 /* Global variable for timer interrupt */
 volatile int timer_triggered = 0;
 
+/* interrupt handler for LPTIM1 */
+void LPTIM1_IRQHandler()
+{
+	// Check & reset update interrupt flag
+	if (LPTIM1->ISR & LPTIM_ISR_ARRM) {
+		LPTIM1->ICR |= LPTIM_ICR_ARRMCF;
+		timer_triggered = 1;
+	}
+}
+
 /* interrupt handler for TIM2 */
 void TIM2_IRQHandler()
 {
@@ -65,13 +75,17 @@ static void MX_SPI3_Init(void);
   */
 int main(void)
 {
+  // Set low-power run mode
+  PWR->CR1 |= PWR_CR1_LPR;
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
   /* Initialize timer at 20Hz (interrupt every 50ms) */
-  timer_init(TIM2);
-  timer_set_ms(TIM2, 50);
+  LPtimer_init(LPTIM1);
+
+  // timer_init(TIM2);
+  // timer_set_ms(TIM2, 1000);
 
   i2c_init();
   lsm6dsl_init();
@@ -132,7 +146,7 @@ int main(void)
 		}
 
 		// Check if device has been not moving for more than one minute (20Hz * 60s)
-		if ((timer_cycles >= 1200) && (timer_cycles % 200 == 0)) {
+		if ((timer_cycles >= 10) && (timer_cycles % 10 == 0)) {
 			// Device is in lost mode; make discoverable
 			setDiscoverability(1);
 			nonDiscoverable = 0;
@@ -143,7 +157,7 @@ int main(void)
 
 			// put fancy format string into message[]
 			// (timer_cycles/20) is number of seconds elapsed since stopped moving, - 60 is number of seconds since lost
-			cx = snprintf(message, 20, "1egg lost for %lds", (timer_cycles/20) - 60);
+			cx = snprintf(message, 20, "1egg lost for %lds", (timer_cycles) - 60);
 
 			// prevent buffer overflow in case cx is more than 20 for some reason
 			if (cx <= 20) {
@@ -154,8 +168,13 @@ int main(void)
 
 		timer_triggered = 0;
 	  }
+
 	  // Wait for interrupt, only uncomment if low power is needed
-	  //__WFI();
+	  PWR->CR1 &= ~PWR_CR1_LPMS;
+	  PWR->CR1 |= PWR_CR1_LPMS_STOP1;
+
+	  SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+	  __WFI();
   }
 }
 
