@@ -80,10 +80,6 @@ void timer_init(TIM_TypeDef* timer)
 	timer->DIER |= TIM_DIER_UIE;
 
 	// Set priority and enable the NVIC timer interrupt
-		NVIC_SetPriority(TIM2_IRQn, 1);
-		NVIC_EnableIRQ(TIM2_IRQn);
-
-	// Set priority and enable the NVIC timer interrupt
 	NVIC_SetPriority(TIM2_IRQn, 1);
 	NVIC_EnableIRQ(TIM2_IRQn);
 

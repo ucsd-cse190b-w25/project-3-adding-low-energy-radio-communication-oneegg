@@ -75,23 +75,28 @@ static void MX_SPI3_Init(void);
   */
 int main(void)
 {
-  // Set low-power run mode
-  PWR->CR1 |= PWR_CR1_LPR;
+
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
-  /* Initialize timer at 20Hz (interrupt every 50ms) */
-  LPtimer_init(LPTIM1);
+	/* Configure the system clock */
+	SystemClock_Config();
 
-  // timer_init(TIM2);
-  // timer_set_ms(TIM2, 1000);
+	// Set low-power run mode
+	PWR->CR1 |= PWR_CR1_LPR;
 
-  i2c_init();
-  lsm6dsl_init();
+	// Lower voltage
+	PWR->CR1 ^= PWR_CR1_VOS;
 
-  /* Configure the system clock */
-  SystemClock_Config();
+	/* Initialize timer at 20Hz (interrupt every 50ms) */
+	LPtimer_init(LPTIM1);
+
+	// timer_init(TIM2);
+	// timer_set_ms(TIM2, 1000);
+
+	i2c_init();
+	lsm6dsl_init();
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
@@ -174,7 +179,7 @@ int main(void)
 	  PWR->CR1 |= PWR_CR1_LPMS_STOP1;
 
 	  SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
-	  __WFI();
+	  // __WFI();
   }
 }
 
@@ -202,7 +207,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.MSIState = RCC_MSI_ON;
   RCC_OscInitStruct.MSICalibrationValue = 0;
   // This lines changes system clock frequency
-  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_7;
+  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_4;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
