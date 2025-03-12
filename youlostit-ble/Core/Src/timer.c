@@ -46,10 +46,12 @@ void LPtimer_init(LPTIM_TypeDef* timer)
 
 	timer->CR |= LPTIM_CR_ENABLE;
 
-	// Interrupt once per second
-	timer->ARR = 250;
+	// Interrupt once every 5 seconds
+	timer->ARR = 1250;
 
 	timer->CR |= LPTIM_CR_CNTSTRT;
+
+
 }
 
 void timer_init(TIM_TypeDef* timer)

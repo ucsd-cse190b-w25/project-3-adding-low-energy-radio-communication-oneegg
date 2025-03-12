@@ -83,13 +83,11 @@ int main(void)
 	/* Configure the system clock */
 	SystemClock_Config();
 
-	// Set low-power run mode
-	PWR->CR1 |= PWR_CR1_LPR;
-
-	// Lower voltage
+	// Set low-power run mode, undervolt as well
+	// PWR->CR1 |= PWR_CR1_LPR;
 	PWR->CR1 ^= PWR_CR1_VOS;
 
-	/* Initialize timer at 20Hz (interrupt every 50ms) */
+	/* Initialize timer */
 	LPtimer_init(LPTIM1);
 
 	// timer_init(TIM2);
@@ -111,7 +109,7 @@ int main(void)
   HAL_Delay(10);
 
   /* initialize as not discoverable until it's lost */
-  uint8_t nonDiscoverable = 0;
+  uint8_t nonDiscoverable = 1;
   setDiscoverability(0);
 
   int32_t timer_cycles = 0;
@@ -140,10 +138,11 @@ int main(void)
 			// Device is moving; disconnect/make nondiscoverable
 			timer_cycles = 0;
 
-			disconnectBLE();
-			setDiscoverability(0);
-			nonDiscoverable = 1;
-
+			if (nonDiscoverable == 0) {
+				disconnectBLE();
+				setDiscoverability(0);
+				nonDiscoverable = 1;
+			}
 
 		} else {
 			// Device is not moving
@@ -151,10 +150,13 @@ int main(void)
 		}
 
 		// Check if device has been not moving for more than one minute (20Hz * 60s)
-		if ((timer_cycles >= 10) && (timer_cycles % 10 == 0)) {
+		if ((timer_cycles >= 2) && (timer_cycles % 2 == 0)) {
+
 			// Device is in lost mode; make discoverable
-			setDiscoverability(1);
-			nonDiscoverable = 0;
+			if (nonDiscoverable == 1) {
+				setDiscoverability(1);
+				nonDiscoverable = 0;
+			}
 
 			// Send a string to the NORDIC UART service, remember to not include the newline
 			uint8_t message[20];
@@ -174,12 +176,31 @@ int main(void)
 		timer_triggered = 0;
 	  }
 
-	  // Wait for interrupt, only uncomment if low power is needed
-	  PWR->CR1 &= ~PWR_CR1_LPMS;
-	  PWR->CR1 |= PWR_CR1_LPMS_STOP1;
+	  SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk;
 
+	  // Enter STOP1 mode (all clocks off, except for LSI/LSE)
+	  PWR->CR1 &= ~PWR_CR1_LPMS;
+	  PWR->CR1 |= PWR_CR1_LPMS_STOP2;
 	  SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
-	  // __WFI();
+
+	  /* GPIO Ports Clock Enable */
+	  // __HAL_RCC_GPIOE_CLK_DISABLE();
+	  // __HAL_RCC_GPIOA_CLK_DISABLE();
+	  // __HAL_RCC_GPIOB_CLK_DISABLE();
+	  // __HAL_RCC_GPIOD_CLK_DISABLE();
+	  // __HAL_RCC_GPIOC_CLK_DISABLE();
+
+	  // Go into deep sleep until interrupted
+	  __WFI();
+
+	  // __HAL_RCC_GPIOE_CLK_ENABLE();
+	  // __HAL_RCC_GPIOA_CLK_ENABLE();
+	  // __HAL_RCC_GPIOB_CLK_ENABLE();
+	  // __HAL_RCC_GPIOD_CLK_ENABLE();
+	  // __HAL_RCC_GPIOC_CLK_ENABLE();
+
+
+	  SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
   }
 }
 
@@ -207,7 +228,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.MSIState = RCC_MSI_ON;
   RCC_OscInitStruct.MSICalibrationValue = 0;
   // This lines changes system clock frequency
-  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_4;
+  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_7;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
