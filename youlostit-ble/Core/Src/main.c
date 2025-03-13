@@ -32,30 +32,28 @@ int dataAvailable = 0;
 
 SPI_HandleTypeDef hspi3;
 
-/* Global variable for timer interrupt */
+// Timer interrupt variable
 volatile int timer_triggered = 0;
 
-/* interrupt handler for LPTIM1 */
+// LPTIM1 interrupt handler; checks & resets UIF
 void LPTIM1_IRQHandler()
 {
-	// Check & reset update interrupt flag
 	if (LPTIM1->ISR & LPTIM_ISR_ARRM) {
 		LPTIM1->ICR |= LPTIM_ICR_ARRMCF;
 		timer_triggered = 1;
 	}
 }
 
-/* interrupt handler for TIM2 */
+// TIM2 interrupt handler; checks & resets UIF
 void TIM2_IRQHandler()
 {
-	// Check & reset update interrupt flag
 	if (TIM2->SR & TIM_SR_UIF) {
 		TIM2->SR &= ~TIM_SR_UIF;
 		timer_triggered = 1;
 	}
 }
 
-/* Redefine the libc _write() function so we can use printf in your code */
+// Redefinition of libc _write() so we can use printf() for debugging
 int _write(int file, char *ptr, int len)
 {
     int i = 0;
@@ -75,26 +73,28 @@ static void MX_SPI3_Init(void);
   */
 int main(void)
 {
-
-
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
-	/* Configure the system clock */
-	SystemClock_Config();
+  /* Configure the system clock */
+  SystemClock_Config();
 
-	// Set low-power run mode, undervolt as well
-	// PWR->CR1 |= PWR_CR1_LPR;
-	PWR->CR1 ^= PWR_CR1_VOS;
+  // Set low-power run mode
+  /*
+   * Note: don't uncomment this unless we can manage to run sysclk at <= 2MHz,
+   * 	   because one of the following two things will happen:
+   * 	   1) it just does nothing
+   * 	   2) it makes us enter Stop 1 instead of Stop 2, which is worse
+   */
+  // PWR->CR1 |= PWR_CR1_LPR;
 
-	/* Initialize timer */
-	LPtimer_init(LPTIM1);
+  // Undervolt 1.2V -> 1.0V (Range 1 -> Range 2)
+  PWR->CR1 ^= PWR_CR1_VOS;
 
-	// timer_init(TIM2);
-	// timer_set_ms(TIM2, 1000);
-
-	i2c_init();
-	lsm6dsl_init();
+  // Initialize our peripherals
+  LPtimer_init(LPTIM1);
+  i2c_init();
+  lsm6dsl_init();
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
@@ -108,10 +108,20 @@ int main(void)
   ble_init();
   HAL_Delay(10);
 
-  /* initialize as not discoverable until it's lost */
+  // Make sure unused GPIOs are disabled
+  __HAL_RCC_GPIOF_CLK_DISABLE();
+  __HAL_RCC_GPIOG_CLK_DISABLE();
+  __HAL_RCC_GPIOH_CLK_DISABLE();
+
+  // These GPIOs were initialized in ble_init(), but don't seem to be used for anything, so...
+  __HAL_RCC_GPIOA_CLK_DISABLE();
+  __HAL_RCC_GPIOC_CLK_DISABLE();
+
+  // Initialize device in nondiscoverable state
   uint8_t nonDiscoverable = 1;
   setDiscoverability(0);
 
+  // Important timer/accel data variables
   int32_t timer_cycles = 0;
   int16_t prev_x, prev_y, prev_z;
 
@@ -134,73 +144,70 @@ int main(void)
 		prev_y = y;
 		prev_z = z;
 
+		// Determine if device is moving based on individual acceleration components
 		if (diff_x > 1500 || diff_y > 1500 || diff_z > 1500) {
-			// Device is moving; disconnect/make nondiscoverable
-			timer_cycles = 0;
-
+			// Moving -> make nondiscoverable and disconnect if it's connected
 			if (nonDiscoverable == 0) {
 				disconnectBLE();
 				setDiscoverability(0);
 				nonDiscoverable = 1;
+
+				// Put BLE radio in standby mode to save power
+				standbyBle();
 			}
 
+			timer_cycles = 0;
 		} else {
-			// Device is not moving
+			// Device is not moving -> increment timer cycles
 			timer_cycles++;
 		}
 
-		// Check if device has been not moving for more than one minute (20Hz * 60s)
-		if ((timer_cycles >= 2) && (timer_cycles % 2 == 0)) {
-
-			// Device is in lost mode; make discoverable
+		// Check if device has been not moving for more than one minute (0.2Hz -> 12 interrupts/minute)
+		if (timer_cycles >= 2) {
+			// Not moving for a significant amount of time -> enter "lost mode," beacon Bluetooth signal
 			if (nonDiscoverable == 1) {
 				setDiscoverability(1);
 				nonDiscoverable = 0;
 			}
 
-			// Send a string to the NORDIC UART service, remember to not include the newline
-			uint8_t message[20];
-			int cx;
+			// Send update message every 10 seconds to the NORDIC UART service
+			if (timer_cycles % 2 == 0) {
+				// Load fancy format string into buffer (don't include a newline)
+				uint8_t message[20];
+				int time_since_lost = (timer_cycles - 12) * 5;
+				int cx = snprintf(message, 20, "1egg lost for %ds", time_since_lost);
 
-			// put fancy format string into message[]
-			// (timer_cycles/20) is number of seconds elapsed since stopped moving, - 60 is number of seconds since lost
-			cx = snprintf(message, 20, "1egg lost for %lds", (timer_cycles) - 60);
-
-			// prevent buffer overflow in case cx is more than 20 for some reason
-			if (cx <= 20) {
-				updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, cx, message);
+				// cx should be leq 20 no matter what, but just in case...
+				if (cx <= 20) {
+					// Actually send the message using BLE
+					updateCharValue(NORDIC_UART_SERVICE_HANDLE, READ_CHAR_HANDLE, 0, cx, message);
+				}
 			}
-
 		}
 
 		timer_triggered = 0;
 	  }
 
+	  // Disable SysTick; anything using HAL relies on it so probably has to go after all the BLE stuff
 	  SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk;
 
-	  // Enter STOP1 mode (all clocks off, except for LSI/LSE)
+	  // Disable in-use GPIOs since we don't need them in sleep
+	  RCC->AHB2ENR &= ~(RCC_AHB2ENR_GPIOBEN);
+	  RCC->AHB2ENR &= ~(RCC_AHB2ENR_GPIOCEN);
+	  RCC->AHB2ENR &= ~(RCC_AHB2ENR_GPIOEEN);
+
+	  // Enter Stop 2 mode and enter deep sleep until interrupted
 	  PWR->CR1 &= ~PWR_CR1_LPMS;
 	  PWR->CR1 |= PWR_CR1_LPMS_STOP2;
 	  SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
-
-	  /* GPIO Ports Clock Enable */
-	  // __HAL_RCC_GPIOE_CLK_DISABLE();
-	  // __HAL_RCC_GPIOA_CLK_DISABLE();
-	  // __HAL_RCC_GPIOB_CLK_DISABLE();
-	  // __HAL_RCC_GPIOD_CLK_DISABLE();
-	  // __HAL_RCC_GPIOC_CLK_DISABLE();
-
-	  // Go into deep sleep until interrupted
 	  __WFI();
 
-	  // __HAL_RCC_GPIOE_CLK_ENABLE();
-	  // __HAL_RCC_GPIOA_CLK_ENABLE();
-	  // __HAL_RCC_GPIOB_CLK_ENABLE();
-	  // __HAL_RCC_GPIOD_CLK_ENABLE();
-	  // __HAL_RCC_GPIOC_CLK_ENABLE();
-
-
+	  // Restore state prior to entering deep sleep
 	  SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
+
+	  RCC->AHB2ENR |= RCC_AHB2ENR_GPIOBEN;
+	  RCC->AHB2ENR |= RCC_AHB2ENR_GPIOCEN;
+	  RCC->AHB2ENR |= RCC_AHB2ENR_GPIOEEN;
   }
 }
 

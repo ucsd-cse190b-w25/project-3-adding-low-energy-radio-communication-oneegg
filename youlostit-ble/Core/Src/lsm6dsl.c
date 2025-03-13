@@ -11,9 +11,11 @@ void lsm6dsl_init()
 {
 	/* Startup sequence - configure accelerometer (app note section 4.1) */
 	uint8_t data[] = {0x10, 0x60, 0x0d, 0x01};
+	uint8_t lp_data[] = {0x15, 0x90, 0x10, 0xb0, 0x0d, 0x01};
 
 	i2c_transaction(0x6a, 0, data, 2);
 	i2c_transaction(0x6a, 0, (data + 2), 2);
+	// i2c_transaction(0x6a, 0, (lp_data + 4), 2);
 
 }
 
