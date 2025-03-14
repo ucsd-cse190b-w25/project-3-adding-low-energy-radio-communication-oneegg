@@ -28,6 +28,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <stm32l475xx.h>
+
 int dataAvailable = 0;
 
 SPI_HandleTypeDef hspi3;
@@ -108,6 +110,7 @@ int main(void)
   ble_init();
   HAL_Delay(10);
 
+
   // Make sure unused GPIOs are disabled
   __HAL_RCC_GPIOF_CLK_DISABLE();
   __HAL_RCC_GPIOG_CLK_DISABLE();
@@ -120,6 +123,21 @@ int main(void)
   // Initialize device in nondiscoverable state
   uint8_t nonDiscoverable = 1;
   setDiscoverability(0);
+
+  /*
+  // Disable EVERY NVIC interrupt!!!!!!
+  // This is just to make sure there are no other interrupts being turned on except for th eones that we made
+  // lol
+  for (int i = -14; i <= 81; i++) {
+	  NVIC_DisableIRQ(i);
+  }
+
+  // Manually re-enable LPTIM1, EXTI9_5 (BLE) interrupts
+  NVIC_SetPriority(LPTIM1_IRQn, 1);
+  NVIC_EnableIRQ(LPTIM1_IRQn);
+  NVIC_SetPriority(EXTI9_5_IRQn, 1);
+  NVIC_EnableIRQ(EXTI9_5_IRQn);
+  */
 
   // Important timer/accel data variables
   int32_t timer_cycles = 0;
@@ -163,7 +181,7 @@ int main(void)
 		}
 
 		// Check if device has been not moving for more than one minute (0.2Hz -> 12 interrupts/minute)
-		if (timer_cycles >= 2) {
+		if (timer_cycles >= 12) {
 			// Not moving for a significant amount of time -> enter "lost mode," beacon Bluetooth signal
 			if (nonDiscoverable == 1) {
 				setDiscoverability(1);
